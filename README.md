@@ -1,154 +1,86 @@
-# openwire
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mtellami/openwire/master/assets/brand/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/mtellami/openwire/master/assets/brand/logo.svg">
+    <img src="https://raw.githubusercontent.com/mtellami/openwire/master/assets/brand/logo.svg" alt="Openwire" width="460" height="140">
+  </picture>
+</p>
 
-> A Model Context Protocol (MCP) server that loads OpenAPI 3.0/3.1 specifications (YAML or JSON) at runtime and dynamically exposes every endpoint as a fully validated MCP tool for LLMs.
+<h1 align="center">Your API. Ready for AI.</h1>
 
-Instead of hand-writing tool wrappers for each REST endpoint, give the bridge a local OpenAPI file path or a remote URL. It automatically turns each operation into a typed, validated MCP tool.
+<p align="center">
+  Turn an OpenAPI specification into validated MCP tools.<br>
+  One command. No endpoint wrappers.
+</p>
 
-## Table of Contents
+<p align="center">
+  <a href="https://www.npmjs.com/package/openwire"><img src="https://img.shields.io/npm/v/openwire?style=flat&amp;color=1D9E75" alt="npm version"></a>
+  <a href="https://github.com/mtellami/openwire/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mtellami/openwire/ci.yml?branch=master&amp;style=flat&amp;label=CI" alt="CI status"></a>
+  <a href="https://www.npmjs.com/package/openwire"><img src="https://img.shields.io/node/v/openwire?style=flat&amp;color=1D9E75" alt="Node.js requirement"></a>
+  <a href="https://github.com/mtellami/openwire/blob/master/LICENSE"><img src="https://img.shields.io/github/license/mtellami/openwire?style=flat&amp;color=1D9E75" alt="MIT license"></a>
+</p>
 
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Requirements](#requirements)
-- [Migrating from api-mcp-bridge](#migrating-from-api-mcp-bridge)
-- [Installation](#installation)
-- [CLI Usage](#cli-usage)
-- [MCP Client Configuration](#mcp-client-configuration)
-- [Configuration & Environment Variables](#configuration--environment-variables)
-- [Authentication](#authentication)
-- [Compatibility and limitations](#compatibility-and-limitations)
-- [Tool Mapping](#tool-mapping)
-- [Security & Limits](#security--limits)
-- [License](#license)
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#connect-your-mcp-client">Client setup</a> ·
+  <a href="#how-it-works">Architecture</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#compatibility">Compatibility</a> ·
+  <a href="https://github.com/mtellami/openwire/blob/master/ROADMAP.md">Roadmap</a>
+</p>
 
-## Features
+---
 
-- **Dynamic spec ingestion** — loads OpenAPI 3.0.x and 3.1.x specs (JSON or YAML) from a local file path or a remote `http(s)://` URL at startup.
-- **Zero glue code** — every operation in the spec becomes an MCP tool automatically; there is nothing to code per endpoint.
-- **Type-safe input schemas** — path, query, header, and cookie parameters become top-level tool properties; the request body is exposed as a `body` property. Required fields are enforced.
-- **Draft-07 compatible schema normalization** — OpenAPI 3.0 constructs such as `nullable: true` and boolean `exclusiveMinimum`/`exclusiveMaximum` are converted to JSON Schema the MCP/LLM layer understands.
-- **`$ref` resolution** — local component references (`#/components/schemas/...`) are dereferenced recursively, with cycle and depth guards.
-- **Input validation** — LLM-supplied arguments are validated against the generated JSON Schema with AJV (formats included) _before_ any network call; validation failures are returned as readable tool errors.
-- **Automatic HTTP execution** — path parameters are URL-encoded and substituted, query/header/cookie parameters are serialized, and request bodies are sent as JSON with the correct `Content-Type`.
-- **Header-based authentication** — inject static credentials via `API_AUTH_HEADERS`/`API_HEADERS` (or `-H`) when fetching the spec and calling API endpoints. Configured headers are not added to tool schemas.
-- **Base URL override** — point the bridge at a different environment (staging, a local mock, an authenticated proxy) without editing the spec.
-- **Optional response limits** — configure depth, array length, string length, and serialized character budgets. Limits are unlimited by default; tool responses flag truncation.
-- **Built-in `health` tool** — a no-op bootstrap tool to verify the server is responding.
-- **Failure handling** — invalid specifications prevent startup. Invalid tool arguments, network failures, and HTTP 4xx/5xx responses produce MCP tool errors.
-- **Insecure HTTP allowed** — optional flag to permit plain `http://` targets.
+Openwire is a [Model Context Protocol](https://modelcontextprotocol.io) server for REST APIs. Give it a local OpenAPI file or a remote specification URL, and it exposes API operations as tools that an MCP client can discover and call over **stdio**.
 
-## How It Works
+Use it to connect an existing API to an AI assistant, point the same tools at staging or a local mock, or explore an API without maintaining a separate integration for every endpoint.
 
-```
-OpenAPI spec (file or URL)
-        │
-        ▼
-┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐
-│ Spec Loader       │───▶│ Parser            │───▶│ Schema Builder    │
-│ (YAML/JSON, $ref  │    │ (3.0/3.1, ops →   │    │ (OpenAPI schema → │
-│  dereference)     │    │  tool metadata)   │    │  MCP JSON Schema) │
-└───────────────────┘    └───────────────────┘    └───────────────────┘
-                                                          │
-                                                          ▼
-┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐
-│ MCP Server        │    │ Validator (AJV)   │    │ HTTP Executor     │
-│ (stdio, one tool  │───▶│ (reject bad args) │───▶│ (call the API)    │
-│  per operation)   │    └───────────────────┘    └─────────┬─────────┘
-└───────────────────┘                                       ▼
-                                                    ┌───────────────────┐
-                                                    │ Sanitizer        │
-                                                    │ (bounded response│
-                                                    │  for LLM context) │
-                                                    └───────────────────┘
-```
+## Why Openwire
 
-1. **Load** — the spec is read from a file or fetched over HTTP(S) and parsed as JSON or YAML.
-2. **Parse** — each path/verb pair becomes a `ParsedOperation`; `$ref`s are resolved, parameters merged, and tool names derived from `operationId`.
-3. **Build schemas** — operation schemas are normalized and converted into the JSON Schema input contract for each MCP tool.
-4. **Serve** — an MCP stdio server registers a `health` tool plus one tool per operation.
-5. **Validate** — on each tool call, arguments are checked against the input schema with AJV before anything hits the network.
-6. **Execute** — a real HTTP request is built (URL, headers, query, cookies, JSON body) and dispatched with a timeout.
-7. **Sanitize** — the response body is compacted/truncated under configurable budgets and returned to the model, along with the HTTP status.
+| Capability                      | What you get                                                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Tools from your spec**        | Operation names, descriptions, parameters, and JSON request bodies become tool definitions at startup.                       |
+| **Validation before execution** | Arguments are checked against generated schemas with AJV, including supported string formats, before an API request is made. |
+| **Configured authentication**   | Inject static authorization or proxy headers into spec downloads and API requests.                                           |
+| **Control over responses**      | Opt into depth, array, string, and serialized character limits to manage model context usage.                                |
+| **Predictable failures**        | Validation failures, network errors, and HTTP 4xx/5xx responses are returned as MCP tool errors.                             |
+| **A small runtime**             | Node.js, built-in `fetch`, and a stdio connection. No separate HTTP service to deploy.                                       |
 
-## Requirements
+## Quick start
 
-- Node.js `>= 20.19` (ESM, built-in `fetch`)
-- An OpenAPI 3.0.x or 3.1.x specification, as JSON or YAML
+**Requirements:** Node.js **20.19 or newer** and an OpenAPI **3.0.x or 3.1.x** specification. See [compatibility](#compatibility) for supported features.
 
-## Migrating from api-mcp-bridge
+Run directly with npx:
 
 ```bash
-npm uninstall -g api-mcp-bridge
-npm install -g openwire
+npx --yes openwire --spec ./openapi.yaml
 ```
 
-Change MCP client commands from `api-mcp-bridge` to `openwire`; for npx use `npx --yes --package openwire openwire --spec ./openapi.yaml`. Environment variables and CLI arguments remain compatible. The old command is also included as an alias in Openwire 1.2.0. The default MCP server identity is now `openwire`; `SERVER_NAME` remains available for overrides.
-
-Source repository: [mtellami/openwire](https://github.com/mtellami/openwire). See [release notes](CHANGELOG.md) and the [optimization roadmap](ROADMAP.md).
-
-## Installation
-
-The npm package ships a compiled CLI. This project is an OpenAPI-to-MCP server, unrelated to the Apache ActiveMQ OpenWire protocol.
-
-### Global install
+Or install the CLI:
 
 ```bash
 npm install -g openwire
-```
-
-### Run-on-demand with npx
-
-```bash
-npx openwire --spec ./openapi.yaml
-```
-
-### From source
-
-```bash
-npm install
-npm run build
-npm run start -- --spec ./openapi.yaml
-```
-
-## CLI Usage
-
-```
-openwire [options] [source]
-```
-
-| Argument               | Description                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| `-s, --spec <src>`     | Path to the spec file or an `http(s)://` URL.                                               |
-| `-H, --headers <json>` | JSON object of headers injected into every request (e.g. `{"Authorization":"Bearer ..."}`). |
-| `<src>` (positional)   | Same as `--spec`.                                                                           |
-| `--help`               | Show usage.                                                                                 |
-
-The spec source can also be provided via the `OPENAPI_SOURCE` environment variable. The CLI flag (or positional argument) takes precedence.
-
-```bash
-# Local file spec
 openwire --spec ./openapi.yaml
-
-# Remote spec URL
-openwire --spec https://api.example.com/openapi.json
-
-# Env-driven
-OPENAPI_SOURCE=./openapi.yaml openwire
 ```
 
-## MCP Client Configuration
+Remote JSON and YAML specifications work too:
 
-`openwire` is a **stdio** MCP server, so it plugs into MCP-compatible clients (Claude Desktop, Cursor, VS Code Copilot, homegrown agents, etc.) as a stdio subprocess.
+```bash
+npx --yes openwire --spec https://api.example.com/openapi.json
+```
 
-### Claude Desktop
+> Openwire is a stdio subprocess for an MCP client. A terminal waiting for input is expected; connect it to your client to discover and call tools.
 
-Open `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`; Windows: `%APPDATA%\Claude\`):
+## Connect your MCP client
+
+Add Openwire to a client that supports local stdio MCP servers. The following uses the common `mcpServers` configuration format; the file location and settings interface depend on your client.
 
 ```json
 {
   "mcpServers": {
     "openwire": {
-      "command": "openwire",
-      "args": ["--spec", "/absolute/path/to/openapi.yaml"],
+      "command": "npx",
+      "args": ["--yes", "openwire", "--spec", "/absolute/path/to/openapi.yaml"],
       "env": {
         "API_BASE_URL": "https://api.example.com"
       }
@@ -157,126 +89,190 @@ Open `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/
 }
 ```
 
-### Generic / JSON MCP client
+For a global installation, set `"command": "openwire"` and use `"args": ["--spec", "/absolute/path/to/openapi.yaml"]`. For a source checkout, use `"command": "node"` with the absolute path to `dist/index.js` followed by `--spec` and your spec path.
+
+Use an absolute local spec path: the client's working directory may differ from your terminal. Restart the connection after changing the specification or configuration; the tool list is built once at startup.
+
+## How it works
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mtellami/openwire/master/assets/diagrams/architecture.svg" alt="At startup, Openwire loads an OpenAPI specification and builds MCP tools. At runtime, a client calls a tool, Openwire validates arguments, calls the REST API, and returns a compacted response." width="960" height="360">
+</p>
+
+At startup, Openwire loads the spec, resolves supported local references, normalizes schemas, and registers a tool for each operation plus a built-in `health` tool. At runtime, it validates arguments, builds and executes the HTTP request, then compacts the response under any configured limits.
+
+### From endpoint to tool
+
+Given this operation:
+
+```yaml
+openapi: 3.0.3
+info:
+  title: Pet API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+paths:
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      summary: Find a pet by ID
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A pet record
+```
+
+Openwire exposes a `getPetById` tool. Calling it with:
 
 ```json
-{
-  "mcpServers": {
-    "openwire": {
-      "command": "openwire",
-      "args": ["--spec", "https://api.example.com/openapi.json"]
-    }
-  }
-}
+{ "petId": "pet-123" }
 ```
 
-### If the binary is not globally installed
+makes a `GET https://api.example.com/pets/pet-123` request. A successful response is returned as text with its HTTP status, for example:
 
-Use plain `node`:
-
-```json
-{
-  "mcpServers": {
-    "openwire": {
-      "command": "node",
-      "args": ["/path/to/openwire/dist/index.js", "--spec", "./openapi.yaml"]
-    }
-  }
-}
+```text
+HTTP 200 OK
+{"id":"pet-123","name":"Rex"}
 ```
 
-> Note: the tool list is fixed at startup — restart the MCP client whenever the upstream spec changes.
+| Mapping        | Behavior                                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Tool name      | Normalize `operationId` to camelCase; fall back to the method and path. Collisions receive numeric suffixes.     |
+| Tool arguments | Path, query, header, and cookie parameters become top-level properties. Unknown arguments are rejected.          |
+| Request body   | Expose JSON payloads under `body`; require it when the spec does.                                                |
+| Base URL       | Use operation, path, then document servers, unless `API_BASE_URL` is set.                                        |
+| Health check   | The reserved `health` tool accepts an optional `echo` string. An API operation named `health` becomes `health2`. |
 
-## Configuration & Environment Variables
+## Configuration
 
-The server is configured once at startup through environment variables (and the CLI `source` argument).
+```text
+openwire [options] [source]
+```
 
-| Variable                     | Default         | Description                                                                                        |
-| ---------------------------- | --------------- | -------------------------------------------------------------------------------------------------- |
-| `OPENAPI_SOURCE`             | _(required)_    | Spec path or `http(s)://` URL to load at startup.                                                  |
-| `OPENAPI_MAX_TOOLS`          | `100`           | Maximum number of MCP tools generated from the spec.                                               |
-| `API_BASE_URL`               | from spec       | Overrides the selected operation, path, or document server URL for every request.                  |
-| `API_TIMEOUT_MS`             | `30000`         | Per-request timeout for calls to the target API.                                                   |
-| `API_MAX_RESPONSE_CHARS`     | unlimited       | Total character budget for sanitized responses returned to the model.                              |
-| `SANITIZE_MAX_DEPTH`         | unlimited       | Max nesting depth kept when compacting JSON responses.                                             |
-| `SANITIZE_MAX_ARRAY_LENGTH`  | unlimited       | Max number of array elements kept per array.                                                       |
-| `SANITIZE_MAX_STRING_LENGTH` | unlimited       | Max length of an individual string value.                                                          |
-| `LOG_LEVEL`                  | `info`          | `debug`, `info`, `warn`, or `error`.                                                               |
-| `SERVER_NAME`                | `openwire`      | MCP server name reported to the client.                                                            |
-| `SERVER_VERSION`             | package version | MCP server version reported to the client.                                                         |
-| `ALLOW_INSECURE_HTTP`        | `false`         | When `true`, permits `http://` spec sources and target APIs; otherwise those requests are refused. |
-| `API_AUTH_HEADERS`           | _(none)_        | JSON object of headers injected into every request (e.g. `{"Authorization":"Bearer ..."}`).        |
-| `API_HEADERS`                | _(none)_        | Same as `API_AUTH_HEADERS`; takes precedence when both are set.                                    |
+| Argument               | Description                                                     |
+| ---------------------- | --------------------------------------------------------------- |
+| `-s, --spec <source>`  | Local spec path or HTTP(S) URL. Overrides `OPENAPI_SOURCE`.     |
+| `<source>`             | Positional alternative to `--spec`.                             |
+| `-H, --headers <json>` | JSON object of headers. Overrides header environment variables. |
+| `-h, --help`           | Print CLI usage and available environment settings.             |
 
-Example:
+### Environment variables
+
+| Variable                     | Default                       | Purpose                                                                                         |
+| ---------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `OPENAPI_SOURCE`             | Required without a CLI source | Local spec path or HTTP(S) URL.                                                                 |
+| `API_BASE_URL`               | Selected server from the spec | Override the base URL for every API call.                                                       |
+| `API_TIMEOUT_MS`             | `30000`                       | Timeout in milliseconds for spec downloads and API requests.                                    |
+| `OPENAPI_MAX_TOOLS`          | `100`                         | Maximum number of spec operations. Specs above this limit are rejected; `health` is additional. |
+| `API_HEADERS`                | Unset                         | JSON header map sent on spec downloads and API requests.                                        |
+| `API_AUTH_HEADERS`           | Unset                         | Header map fallback; `API_HEADERS` takes precedence.                                            |
+| `API_MAX_RESPONSE_CHARS`     | Unlimited                     | Serialized response-body character budget.                                                      |
+| `SANITIZE_MAX_DEPTH`         | Unlimited                     | Maximum JSON nesting depth retained; root depth is zero.                                        |
+| `SANITIZE_MAX_ARRAY_LENGTH`  | Unlimited                     | Maximum number of elements retained per array.                                                  |
+| `SANITIZE_MAX_STRING_LENGTH` | Unlimited                     | String content retained before an optional truncation marker.                                   |
+| `ALLOW_INSECURE_HTTP`        | `false`                       | Permit plain HTTP for spec downloads and API requests.                                          |
+| `LOG_LEVEL`                  | `info`                        | `debug`, `info`, `warn`, or `error`. Logs go to stderr.                                         |
+| `SERVER_NAME`                | `openwire`                    | MCP server identity reported to the client.                                                     |
+| `SERVER_VERSION`             | Package version               | MCP server version reported to the client.                                                      |
+
+### Authenticate requests
+
+Configure precomputed Bearer tokens, Basic authorization values, API-key headers, or custom proxy headers:
 
 ```bash
-export OPENAPI_SOURCE=https://petstore3.swagger.io/api/v3/openapi.json
-export API_BASE_URL=https://localhost:8080
-export API_TIMEOUT_MS=15000
-export API_MAX_RESPONSE_CHARS=50000
-export LOG_LEVEL=debug
-openwire
+export API_HEADERS='{"Authorization":"Bearer YOUR_TOKEN","X-API-Key":"YOUR_KEY"}'
+openwire --spec https://api.example.com/openapi.json
 ```
 
-> When `API_BASE_URL` is set, every tool call is routed to that base URL regardless of what the spec declares, which is handy for mocking, staging, or authenticated gateways.
+For client-managed subprocesses, put `API_HEADERS` in the client's `env` configuration. Keep real credentials out of committed configuration files.
 
-## Authentication
+Header precedence is **`--headers` → `API_HEADERS` → `API_AUTH_HEADERS`**: the highest-priority value replaces the entire header map. Configured headers override same-name header parameters supplied in a tool call.
 
-Openwire injects configured credentials as HTTP headers on spec downloads and API requests. Configured headers override tool-supplied header parameters of the same name. Configure them with `API_AUTH_HEADERS` (env), `API_HEADERS` (env, takes precedence), or the `-H/--headers` CLI flag (takes precedence over both).
+The same headers are sent to the spec URL and the selected API server, so use trusted endpoints. Security schemes are metadata: Openwire does not perform OAuth/OpenID flows, refresh tokens, or automatically inject query/cookie API keys. Use a suitable proxy or restart with updated static credentials when tokens rotate.
 
-The value is a JSON object of header name/value pairs:
+### Manage response size
+
+Limits are opt-in. For example:
 
 ```bash
-export OPENAPI_SOURCE=https://api.example.com/openapi.json
-export API_AUTH_HEADERS='{"Authorization":"Bearer eyJhbGciOi...","X-API-Key":"abc123"}'
-openwire
+export API_MAX_RESPONSE_CHARS=20000
+export SANITIZE_MAX_DEPTH=8
+export SANITIZE_MAX_ARRAY_LENGTH=50
+export SANITIZE_MAX_STRING_LENGTH=2000
+openwire --spec ./openapi.yaml
 ```
 
-Or via the CLI flag:
+The character budget includes JSON escaping, punctuation, and embedded markers. HTTP status lines and the separate `[response truncated]` notice sit outside that budget. JSON remains valid when a value fits; otherwise the response body is empty.
+
+Responses are buffered before sanitization. These options limit output to the client, rather than download size or peak memory usage.
+
+### Use a local API
 
 ```bash
-openwire --spec ./openapi.yaml -H '{"Authorization":"Bearer eyJhbGciOi..."}'
+export API_BASE_URL=http://localhost:8080
+export ALLOW_INSECURE_HTTP=true
+openwire --spec ./openapi.yaml
 ```
 
-Supply precomputed Bearer tokens, Basic authorization values, API-key headers, or proxy headers. Security schemes in the spec are metadata: Openwire does not perform OAuth/OpenID flows or automatically inject query/cookie API keys. Query/cookie parameters declared by the spec remain ordinary tool arguments.
+## Compatibility
 
-Static tokens only — if your API needs a fresh token per call (client-credentials exchange, short-lived JWTs), point `API_BASE_URL` at a proxy that acquires tokens, or rotate the header value before restarting the bridge.
+| Area              | Current support                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| Transport         | Local stdio MCP server.                                                                               |
+| Specifications    | OpenAPI 3.0.x and 3.1.x, JSON or YAML, local file or HTTP(S) source.                                  |
+| Schema validation | AJV draft-07 with OpenAPI 3.0 normalization; full JSON Schema 2020-12 semantics are not implemented.  |
+| References        | Supported local references; external references and recursive schema cycles are rejected.             |
+| Request bodies    | `application/json` and `application/*+json`; other encodings return an error when a body is supplied. |
+| Parameters        | Scalar/JSON serialization; OpenAPI `style` and `explode` are not fully implemented.                   |
+| Servers           | Operation/path/document precedence and a global override; server variables are not expanded.          |
+| Authentication    | Static HTTP headers; no token acquisition or refresh.                                                 |
 
-> When the _spec file itself_ is served from a protected URL, the same headers are attached when fetching `OPENAPI_SOURCE` over HTTP(S).
+Parameter names share one argument namespace. Duplicate names across locations, or a parameter named `body`, can collide with the request-body argument.
 
-## Compatibility and limitations
+Plain HTTP is refused by default. Configured credentials are not added to tool schemas, and logs omit request headers; upstream response bodies can still echo sensitive information. Invalid specifications prevent initialization; invalid arguments, network failures, and HTTP 4xx/5xx responses produce tool errors.
 
-- Local references are supported; external references and recursive schema cycles are rejected.
-- OpenAPI 3.0 schemas are normalized for draft-07 validation. OpenAPI 3.1 documents are accepted, but full JSON Schema 2020-12 semantics are not implemented.
-- JSON request bodies (`application/json` and `application/*+json`) are supported and preferred. Other body encodings return a clear execution error when a body is supplied.
-- Parameter serialization uses simple scalar/JSON values; OpenAPI `style`/`explode` rules are not fully implemented.
-- Parameter names share one tool namespace; duplicate names across locations or a parameter named `body` can collide with the body argument.
-- Server selection uses operation, path, then document precedence. Server-variable expansion is not implemented.
+## Development
 
-## Tool Mapping
-
-- **Tool name** — derived from the operation's `operationId` (normalized to camelCase); falls back to `<method>_<path>` when no `operationId` exists. The built-in `health` name is reserved. Collisions get a numeric suffix (`getUser`, `getUser2`, …).
-- **Tool description** — `HTTP <METHOD> <path>`, plus the operation `summary` and `description`.
-- **Input schema** — one property per path/query/header/cookie parameter (required ones listed under `required`), and a single `body` property for operations with a request body (required when the spec marks it so). `additionalProperties` is disabled.
-- **Built-in tools** — a `health` tool with an optional `echo` string argument lets clients probe connectivity.
-
-Example effect for a hypothetical `GET /pets/{petId}` with an `order` query param:
-
-```
-MCP tool: getPetById
-Input:    { petId: string (required), order?: string }
+```bash
+git clone https://github.com/mtellami/openwire.git
+cd openwire
+npm ci
+npm run build
+npm start -- --spec ./openapi.yaml
 ```
 
-## Security & Limits
+| Command                                | Purpose                                                           |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `npm run dev -- --spec ./openapi.yaml` | Run the CLI with source watching.                                 |
+| `npm run typecheck`                    | Check TypeScript types.                                           |
+| `npm run lint`                         | Lint source files.                                                |
+| `npm run format:check`                 | Check repository formatting.                                      |
+| `npm test`                             | Run unit and MCP integration tests.                               |
+| `npm run test:package`                 | Build, pack, install, and verify both CLI names and MCP behavior. |
 
-- Spec loading supports both local files and remote URLs; remote fetches honor `API_TIMEOUT_MS`, and `http://` sources are refused unless `ALLOW_INSECURE_HTTP=true`.
-- Requests to the target API are made with the built-in `fetch` and a timeout; slow or failing upstreams surface as structured tool errors. Plain `http://` targets are refused unless `ALLOW_INSECURE_HTTP=true`.
-- Configured credentials are injected server-side and are not added to tool schemas. Logs omit request headers, but upstream responses may echo secrets; configure and trust your upstream accordingly.
-- Response limits are opt-in. `API_MAX_RESPONSE_CHARS` bounds the serialized response body, including escaping and embedded markers; HTTP status lines and the separate `[response truncated]` notice are outside that budget. JSON stays valid when a value fits; otherwise the body is empty. Downloads are still buffered before sanitization.
-- Argument validation happens before any external call, rejecting malformed input early.
-- To talk to `http://` endpoints (e.g., local mocks), set `ALLOW_INSECURE_HTTP=true`.
+CI runs checks on Node.js **20, 22, and 24**. Brand assets live in [`assets/brand`](https://github.com/mtellami/openwire/tree/master/assets/brand), and README diagrams live in [`assets/diagrams`](https://github.com/mtellami/openwire/tree/master/assets/diagrams). The README uses absolute image URLs so the same branding renders on GitHub and npm.
 
-## License
+For bug reports, include your Node.js version, a minimal specification with secrets removed, the command or client configuration, and the observed error. Use [GitHub Issues](https://github.com/mtellami/openwire/issues) for reports and feature requests, or open a pull request with a focused change and relevant validation.
 
-[MIT](LICENSE)
+## Migrating from api-mcp-bridge
+
+```bash
+npm uninstall -g api-mcp-bridge
+npm install -g openwire
+```
+
+Update the MCP command to `openwire`, or use `npx --yes openwire`. Existing environment variable names and CLI arguments remain compatible. The old command is retained as an alias in Openwire 1.2.x; the default server identity is now `openwire`.
+
+## Project
+
+- [Changelog](https://github.com/mtellami/openwire/blob/master/CHANGELOG.md) — release history and migration notes.
+- [Roadmap](https://github.com/mtellami/openwire/blob/master/ROADMAP.md) — operation filtering, bounded downloads, OpenAPI compatibility, and authentication improvements.
+- [MIT license](https://github.com/mtellami/openwire/blob/master/LICENSE) — maintained by [Moad Tellami](https://github.com/mtellami).
+
+Openwire is an OpenAPI-to-MCP server, unrelated to the Apache ActiveMQ OpenWire protocol.

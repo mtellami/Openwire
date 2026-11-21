@@ -1,6 +1,6 @@
 {
   "name": "openwire",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "OpenAPI-to-MCP server: turn API specifications into validated tools for AI clients.",
   "author": "Moad Tellami",
   "license": "MIT",
@@ -42,7 +42,10 @@
     "api-mcp-bridge": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "assets",
+    "CHANGELOG.md",
+    "ROADMAP.md"
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",

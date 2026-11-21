@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 — Documentation and branding
+
+- Reorganize the README around quick start, client setup, architecture, configuration, and compatibility.
+- Add the Openwire logo, a dark-theme wordmark, status badges, and an architecture diagram.
+- Organize supplied SVGs under `assets/brand` and package brand assets, diagrams, changelog, and roadmap for npm.
+- Verify required visual assets in the package smoke check.
+
 ## 1.2.0 — Openwire
 
 ### Migration

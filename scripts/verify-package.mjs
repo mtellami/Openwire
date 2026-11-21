@@ -50,9 +50,21 @@ try {
     packed.files.every(
       (file) =>
         file.path.startsWith("dist/") ||
-        ["package.json", "README.md", "LICENSE"].includes(file.path),
+        file.path.startsWith("assets/") ||
+        ["package.json", "README.md", "LICENSE", "CHANGELOG.md", "ROADMAP.md"].includes(file.path),
     ),
   );
+  for (const asset of [
+    "assets/brand/logo.svg",
+    "assets/brand/logo-dark.svg",
+    "assets/brand/icon.svg",
+    "assets/diagrams/architecture.svg",
+  ]) {
+    assert.ok(
+      packed.files.some((file) => file.path === asset),
+      `Missing packaged asset: ${asset}`,
+    );
+  }
   execFileSync(
     npm,
     [
