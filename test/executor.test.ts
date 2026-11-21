@@ -21,7 +21,7 @@ function makeContext(
     maxArrayLength: 100,
     maxStringLength: 2_000,
     logLevel: "info",
-    serverName: "api-mcp-bridge",
+    serverName: "openwire",
     serverVersion: "1.0.0",
     allowInsecureHttp: false,
     ...overrides,

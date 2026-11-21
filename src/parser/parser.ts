@@ -47,7 +47,7 @@ export function parseOpenApiSpec(
   const baseUrl = firstServerUrl(servers, options.specOrigin);
 
   const paths = (document.paths ?? {}) as Record<string, unknown>;
-  const usedNames = new Set<string>();
+  const usedNames = new Set<string>(["health"]);
   const operations: ParsedOperation[] = [];
   const securitySchemes = extractSecuritySchemes(document);
 
@@ -69,7 +69,23 @@ export function parseOpenApiSpec(
         securitySchemes,
       );
       operations.push(
-        buildOperation(path, method, op, sharedParameters, document, baseUrl, usedNames, security),
+        buildOperation(
+          path,
+          method,
+          op,
+          sharedParameters,
+          document,
+          firstServerUrl(
+            Array.isArray(op.servers)
+              ? op.servers
+              : Array.isArray(pathItem.servers)
+                ? pathItem.servers
+                : servers,
+            options.specOrigin,
+          ) || baseUrl,
+          usedNames,
+          security,
+        ),
       );
     }
   }
@@ -325,8 +341,26 @@ function extractRequestBody(
   if (!isObject(value)) {
     return undefined;
   }
-  const content = isObject(value.content) ? (value.content as Record<string, unknown>) : {};
-  const contentType = Object.keys(content)[0];
+  let body = value;
+  const seen = new Set<string>();
+  while (typeof body.$ref === "string") {
+    const ref = body.$ref;
+    if (seen.has(ref)) {
+      throw new SpecParseError(`Circular request body $ref detected: ${ref}`);
+    }
+    seen.add(ref);
+    const target = resolveLocalRef(root, ref);
+    if (!target) {
+      throw new SpecParseError(`Could not resolve request body $ref: ${ref}`);
+    }
+    body = target;
+  }
+  const content = isObject(body.content) ? (body.content as Record<string, unknown>) : {};
+  const contentTypes = Object.keys(content);
+  const contentType =
+    contentTypes.find((type) => type.toLowerCase() === "application/json") ??
+    contentTypes.find((type) => /^application\/[^;]+\+json(?:;|$)/i.test(type)) ??
+    contentTypes[0];
   if (!contentType) {
     return undefined;
   }
@@ -335,7 +369,7 @@ function extractRequestBody(
     : {};
   const rawSchema = isObject(mediaType.schema) ? (mediaType.schema as JsonSchema) : undefined;
   return {
-    required: value.required === true,
+    required: body.required === true,
     contentType,
     schema: rawSchema ? dereferenceSchema(rawSchema, root) : undefined,
   };
@@ -465,7 +499,7 @@ function assertOpenApiVersion(document: OpenApiDocument): void {
   if (typeof version !== "string") {
     throw new SpecParseError("Spec is missing the required `openapi` field");
   }
-  if (!/^3\.(0|1)(\.\d+)?/.test(version)) {
+  if (!/^3\.(0|1)\.\d+$/.test(version)) {
     throw new SpecParseError(`Unsupported OpenAPI version "${version}": expected 3.0.x or 3.1.x`);
   }
 }

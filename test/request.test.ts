@@ -73,3 +73,28 @@ describe("prepareRequest", () => {
     assert.equal(req.headers.accept, "application/json");
   });
 });
+
+describe("request body encoding", () => {
+  it("rejects unsupported body encodings instead of mislabeling JSON", () => {
+    for (const contentType of [
+      "multipart/form-data",
+      "application/x-www-form-urlencoded",
+      "text/plain",
+    ]) {
+      const op = makeOperation({ method: "post", requestBody: { required: true, contentType } });
+      assert.throws(
+        () => prepareRequest(op, { body: "hello" }, op.baseUrl, 1000),
+        /only JSON bodies are supported/,
+      );
+    }
+  });
+
+  it("accepts vendor JSON media types", () => {
+    const op = makeOperation({
+      method: "post",
+      requestBody: { required: true, contentType: "application/vnd.api+json" },
+    });
+    const req = prepareRequest(op, { body: { data: 1 } }, op.baseUrl, 1000);
+    assert.equal(req.headers["content-type"], "application/vnd.api+json");
+  });
+});

@@ -1,5 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { SpecLoadError } from "../errors.js";
 
 export interface LoadedSpec {

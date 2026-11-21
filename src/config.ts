@@ -1,3 +1,4 @@
+import { packageMetadata } from "./metadata.js";
 import { z } from "zod";
 import { ConfigError } from "./errors.js";
 import { parseLogLevel, type LogLevel } from "./logger.js";
@@ -27,8 +28,8 @@ export interface BridgeConfig {
 export const DEFAULT_CONFIG = {
   timeoutMs: 30_000,
   maxTools: 100,
-  serverName: "api-mcp-bridge",
-  serverVersion: "1.0.0",
+  serverName: packageMetadata.name,
+  serverVersion: packageMetadata.version,
 } as const;
 
 const numberOrEmpty = (def: number) =>

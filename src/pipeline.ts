@@ -15,6 +15,7 @@ export async function buildContext(
     timeoutMs: config.timeoutMs,
     fetchImpl,
     allowInsecureHttp: config.allowInsecureHttp,
+    headers: config.headers,
   });
   logger.debug(`Parsing ${loaded.format} spec (${loaded.text.length} characters)`);
   const specOrigin = isHttpSource(config.source) ? safeOrigin(config.source) : undefined;

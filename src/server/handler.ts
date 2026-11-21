@@ -55,7 +55,7 @@ export function createToolHandler(
         url: http.url,
         truncated: sanitized.truncated,
       });
-      return { content: [{ type: "text", text: content }], isError: false };
+      return { content: [{ type: "text", text: content }], isError: http.status >= 400 };
     } catch (err) {
       if (err instanceof HttpExecutionError) {
         return textResult(`Execution error for tool ${operation.toolName}: ${err.message}`, true);

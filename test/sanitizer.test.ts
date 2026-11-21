@@ -59,3 +59,36 @@ describe("sanitizeResponse", () => {
     assert.deepEqual(parsed.deep, { a: { b: { c: { d: { e: { f: { g: 1 } } } } } } });
   });
 });
+
+describe("serialized response budgets", () => {
+  const samples = [
+    { name: '"\\\n'.repeat(100), long: "x".repeat(1000) },
+    Array.from({ length: 1000 }, (_, i) => i),
+    Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`long-key-${i}`, true])),
+    'escaped\n"\\😀'.repeat(100),
+    123456789,
+    null,
+    { __proto__: null, nested: { values: [1, 2, 3] } },
+  ];
+  for (const budget of [0, 1, 2, 3, 4, 8, 20, 100, 1000]) {
+    it(`bounds JSON output at ${budget} characters, including escapes and punctuation`, () => {
+      for (const sample of samples) {
+        const raw = JSON.stringify(sample);
+        const result = sanitizeResponse(raw, { maxChars: budget });
+        assert.ok(result.text.length <= budget, result.text);
+        if (result.text) JSON.parse(result.text);
+        if (raw.length > budget) assert.equal(result.truncated, true);
+      }
+    });
+    it(`bounds plain text and its marker at ${budget} characters`, () => {
+      const result = sanitizeResponse("plain ".repeat(500), { maxChars: budget });
+      assert.ok(result.text.length <= budget);
+      assert.equal(result.truncated, true);
+    });
+  }
+
+  it("retains JSON properties named __proto__", () => {
+    const raw = '{"__proto__":{"safe":true}}';
+    assert.equal(sanitizeResponse(raw, {}).text, raw);
+  });
+});

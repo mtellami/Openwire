@@ -2,7 +2,7 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { loadConfig, type BridgeConfig } from "./config.js";
+import { DEFAULT_CONFIG, loadConfig, type BridgeConfig } from "./config.js";
 import { Logger } from "./logger.js";
 import { buildContext } from "./pipeline.js";
 import { createMcpServer } from "./server/index.js";
@@ -53,10 +53,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
   return res;
 }
 
-const USAGE = `api-mcp-bridge — Dynamic OpenAPI-to-MCP Bridge Engine
+const USAGE = `openwire — Dynamic OpenAPI-to-MCP Bridge Engine
 
 Usage:
-  api-mcp-bridge [options] [source]
+  openwire [options] [source]
 
 Options:
   -s, --spec <source>    Path to an OpenAPI spec file, or an http(s):// URL.
@@ -67,14 +67,15 @@ Options:
 Environment:
   OPENAPI_SOURCE         Spec file path or URL (required unless --spec is given).
   API_BASE_URL           Override the base URL used for every request.
-  API_TIMEOUT_MS         Per-request timeout in ms (default: 30000).
+  API_TIMEOUT_MS         Per-request timeout in ms (default: ${DEFAULT_CONFIG.timeoutMs}).
+  OPENAPI_MAX_TOOLS      Maximum operations exposed (default: ${DEFAULT_CONFIG.maxTools}).
   API_MAX_RESPONSE_CHARS Response character budget (default: unlimited).
   SANITIZE_MAX_DEPTH     Max JSON depth kept (default: unlimited).
   SANITIZE_MAX_ARRAY_LENGTH Max array elements kept (default: unlimited).
   SANITIZE_MAX_STRING_LENGTH Max string length kept (default: unlimited).
   LOG_LEVEL              debug | info | warn | error (default: info).
-  SERVER_NAME            MCP server name (default: api-mcp-bridge).
-  SERVER_VERSION         MCP server version (default: 1.0.0).
+  SERVER_NAME            MCP server name (default: ${DEFAULT_CONFIG.serverName}).
+  SERVER_VERSION         MCP server version (default: ${DEFAULT_CONFIG.serverVersion}).
   ALLOW_INSECURE_HTTP    "true" to allow plain http:// targets (default: false).
   API_HEADERS            JSON object of extra headers injected into every request.
 `;
@@ -86,14 +87,9 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const env = {
-    ...process.env,
-    ...(cli.headers ? { API_HEADERS: cli.headers } : {}),
-  };
-
   let config: BridgeConfig;
   try {
-    config = loadConfig(env, cli.source);
+    config = loadConfig(process.env, cli.source, cli.headers);
   } catch (err) {
     process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
     process.stderr.write(USAGE);
@@ -101,7 +97,7 @@ export async function main(): Promise<void> {
   }
 
   const logger = new Logger({ level: config.logLevel });
-  logger.info(`OpenAPI Bridge starting (server="${config.serverName}" v${config.serverVersion})`);
+  logger.info(`Openwire starting (server="${config.serverName}" v${config.serverVersion})`);
 
   const handle = serveStdio(async () => {
     const context = await buildContext(config, logger);

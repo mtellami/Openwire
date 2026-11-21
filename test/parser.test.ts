@@ -316,3 +316,80 @@ describe("dereferenceSchema", () => {
     );
   });
 });
+
+describe("operation compatibility", () => {
+  function parse(paths: unknown, components = {}) {
+    return parseOpenApiSpec(
+      JSON.stringify({
+        openapi: "3.0.3",
+        info: { title: "Test", version: "1" },
+        servers: [{ url: "https://global.example.com" }],
+        paths,
+        components,
+      }),
+      "json",
+      { specOrigin: "https://spec.example.com" },
+    );
+  }
+
+  it("reserves health and deduplicates names after normalization", () => {
+    const spec = parse({
+      "/a": { get: { operationId: "health" } },
+      "/b": { get: { operationId: "health2" } },
+    });
+    assert.deepEqual(
+      spec.operations.map((op) => op.toolName),
+      ["health2", "health22"],
+    );
+  });
+
+  it("applies operation, path, then document server precedence", () => {
+    const spec = parse({
+      "/a": { servers: [{ url: "/path" }], get: { servers: [{ url: "/operation" }] }, post: {} },
+      "/b": { get: {} },
+    });
+    assert.deepEqual(
+      spec.operations.map((op) => op.baseUrl),
+      [
+        "https://spec.example.com/operation",
+        "https://spec.example.com/path",
+        "https://global.example.com",
+      ],
+    );
+  });
+
+  it("resolves request-body references and prefers JSON over form content", () => {
+    const spec = parse(
+      { "/a": { post: { requestBody: { $ref: "#/components/requestBodies/Pet" } } } },
+      {
+        requestBodies: {
+          Pet: {
+            required: true,
+            content: {
+              "multipart/form-data": { schema: { type: "object" } },
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["name"],
+                  properties: { name: { type: "string" } },
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    assert.equal(spec.operations[0]?.requestBody?.contentType, "application/json");
+    assert.equal(spec.operations[0]?.requestBody?.required, true);
+    assert.deepEqual(spec.operations[0]?.requestBody?.schema?.required, ["name"]);
+  });
+
+  it("rejects missing and circular request-body references", () => {
+    const paths = { "/a": { post: { requestBody: { $ref: "#/components/requestBodies/Pet" } } } };
+    assert.throws(() => parse(paths), SpecParseError);
+    assert.throws(
+      () => parse(paths, { requestBodies: { Pet: { $ref: "#/components/requestBodies/Pet" } } }),
+      SpecParseError,
+    );
+  });
+});

@@ -1,3 +1,4 @@
+import { ValidationError } from "../errors.js";
 import type { HttpRequestContext, ParsedOperation } from "../types.js";
 
 export function prepareRequest(
@@ -35,6 +36,11 @@ export function prepareRequest(
   if (operation.requestBody) {
     const value = args.body;
     if (value !== undefined) {
+      if (!/^application\/(?:json|[^;]+\+json)(?:;|$)/i.test(operation.requestBody.contentType)) {
+        throw new ValidationError(
+          `Unsupported request body content type "${operation.requestBody.contentType}": only JSON bodies are supported`,
+        );
+      }
       body = value;
       headers["content-type"] = operation.requestBody.contentType;
     }

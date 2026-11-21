@@ -43,14 +43,6 @@ export function normalizeOpenApiSchema(schema: JsonSchema): JsonSchema {
   }
   delete copy.nullable;
 
-  if (
-    Array.isArray(copy.type) &&
-    copy.type.includes("object") &&
-    (copy.properties || copy.required)
-  ) {
-    copy.type = "object";
-  }
-
   if (copy.exclusiveMinimum === true && typeof copy.minimum === "number") {
     copy.exclusiveMinimum = copy.minimum;
     delete copy.minimum;
@@ -68,18 +60,19 @@ export function normalizeOpenApiSchema(schema: JsonSchema): JsonSchema {
   for (const keyword of SCHEMA_MAP_KEYWORDS) {
     const map = copy[keyword] as Record<string, JsonSchema> | undefined;
     if (map && typeof map === "object" && !Array.isArray(map)) {
-      for (const [key, value] of Object.entries(map)) {
-        if (isSchema(value)) {
-          map[key] = normalizeOpenApiSchema(value);
-        }
-      }
+      copy[keyword] = Object.fromEntries(
+        Object.entries(map).map(([key, value]) => [
+          key,
+          isSchema(value) ? normalizeOpenApiSchema(value) : value,
+        ]),
+      );
     }
   }
 
   for (const keyword of SCHEMA_ARRAY_KEYWORDS) {
     const list = copy[keyword];
     if (Array.isArray(list)) {
-      copy[keyword] = list.filter(isSchema).map((sub) => normalizeOpenApiSchema(sub));
+      copy[keyword] = list.map((sub) => (isSchema(sub) ? normalizeOpenApiSchema(sub) : sub));
     }
   }
 

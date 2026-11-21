@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildInputSchema, normalizeOpenApiSchema } from "../src/schema/index.js";
+import { validateData } from "../src/validator/index.js";
 import type { ParsedOperation } from "../src/types.js";
 
 const operation: ParsedOperation = {
@@ -89,7 +90,12 @@ describe("normalizeOpenApiSchema", () => {
     };
     const normalized = normalizeOpenApiSchema(input);
     assert.notEqual(normalized, input);
-    assert.equal(normalized.type, "object");
+    assert.deepEqual(normalized.type, ["object", "null"]);
+    assert.equal(input.properties.tags.nullable, true);
+    assert.equal(input.properties.tags.items.nullable, true);
+    assert.deepEqual(input.properties.tags.type, "array");
+    assert.equal(validateData(normalized, null).ok, true);
+    assert.equal(validateData(normalized, { tags: null }).ok, true);
     assert.deepEqual(normalized.properties?.tags?.type, ["array", "null"]);
     assert.ok(
       normalized.properties?.tags?.items && !Array.isArray(normalized.properties.tags.items),

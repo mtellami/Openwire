@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { packageMetadata } from "../src/metadata.js";
 import { loadConfig } from "../src/config.js";
 import { ConfigError } from "../src/errors.js";
 import { loadSpec, inferFormat } from "../src/loader/index.js";
@@ -19,7 +20,8 @@ describe("loadConfig", () => {
     assert.equal(config.maxArrayLength, undefined);
     assert.equal(config.maxStringLength, undefined);
     assert.equal(config.logLevel, "info");
-    assert.equal(config.serverName, "api-mcp-bridge");
+    assert.equal(config.serverName, "openwire");
+    assert.equal(config.serverVersion, packageMetadata.version);
     assert.equal(config.allowInsecureHttp, false);
   });
 

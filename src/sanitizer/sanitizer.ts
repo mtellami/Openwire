@@ -11,106 +11,87 @@ export interface SanitizeResult {
 }
 
 const TRUNCATION_SUFFIX = "…[truncated]";
-
-interface WalkState {
-  truncated: boolean;
-  budget: number;
-}
-
 const NO_LIMIT = Number.POSITIVE_INFINITY;
 
-/**
- * Compacts and truncates an API response body before it is handed to the
- * LLM. JSON documents are walked with depth, array-length, string-length and
- * total-character budgets; non-JSON payloads fall back to plain truncation.
- * Unset limits are treated as unlimited.
- */
+/** Compact JSON within an exact serialized character budget. Limits are opt-in. */
 export function sanitizeResponse(raw: string, options: SanitizeOptions): SanitizeResult {
-  const { maxDepth, maxArrayLength, maxStringLength } = options;
-  const maxChars = options.maxChars ?? NO_LIMIT;
-
+  const maxChars = Math.floor(options.maxChars ?? NO_LIMIT);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return truncatePlain(raw, maxChars, maxStringLength ?? NO_LIMIT);
-  }
-
-  const state: WalkState = { truncated: false, budget: maxChars };
-  const compacted = compact(
-    parsed,
-    maxDepth ?? NO_LIMIT,
-    maxArrayLength ?? NO_LIMIT,
-    maxStringLength ?? NO_LIMIT,
-    state,
-    0,
-  );
-  const text = JSON.stringify(compacted);
-  return { text, truncated: state.truncated };
-}
-
-function compact(
-  value: unknown,
-  maxDepth: number,
-  maxArrayLength: number,
-  maxStringLength: number,
-  state: WalkState,
-  depth: number,
-): unknown {
-  if (depth > maxDepth) {
-    state.truncated = true;
-    return undefined;
-  }
-
-  if (typeof value === "string") {
-    let text = value;
-    if (text.length > maxStringLength) {
-      state.truncated = true;
-      text = text.slice(0, maxStringLength) + TRUNCATION_SUFFIX;
+    const maxStringLength = options.maxStringLength ?? NO_LIMIT;
+    let text =
+      raw.length > maxStringLength ? raw.slice(0, maxStringLength) + TRUNCATION_SUFFIX : raw;
+    if (text.length > maxChars) {
+      const suffix = maxChars >= TRUNCATION_SUFFIX.length ? TRUNCATION_SUFFIX : "";
+      text = text.slice(0, Math.max(0, maxChars - suffix.length)) + suffix;
     }
-    state.budget -= text.length;
-    return text;
+    return { text, truncated: text !== raw };
   }
 
-  if (typeof value === "number" || typeof value === "boolean" || value === null) {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length > maxArrayLength) {
-      state.truncated = true;
+  let truncated = false;
+  function encode(value: unknown, budget: number, depth: number): string | undefined {
+    if (depth > (options.maxDepth ?? NO_LIMIT)) {
+      truncated = true;
+      return undefined;
     }
-    const sliced = value.slice(0, maxArrayLength);
-    return sliced.map((item) =>
-      compact(item, maxDepth, maxArrayLength, maxStringLength, state, depth + 1),
-    );
-  }
-
-  if (typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      if (state.budget <= 0) {
-        state.truncated = true;
+    if (typeof value === "string") {
+      let text = value;
+      if (text.length > (options.maxStringLength ?? NO_LIMIT)) {
+        text = text.slice(0, options.maxStringLength) + TRUNCATION_SUFFIX;
+        truncated = true;
+      }
+      const encoded = JSON.stringify(text);
+      if (encoded.length <= budget) return encoded;
+      truncated = true;
+      if (budget < 2) return undefined;
+      const suffix = JSON.stringify(TRUNCATION_SUFFIX).length <= budget ? TRUNCATION_SUFFIX : "";
+      // Search the prefix by its escaped JSON size, including quotes and marker.
+      let low = 0;
+      let high = Math.min(text.length, budget);
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (JSON.stringify(text.slice(0, mid) + suffix).length <= budget) low = mid;
+        else high = mid - 1;
+      }
+      return JSON.stringify(text.slice(0, low) + suffix);
+    }
+    if (value === null || typeof value !== "object") {
+      const encoded = JSON.stringify(value);
+      if (encoded !== undefined && encoded.length <= budget) return encoded;
+      truncated = true;
+      return undefined;
+    }
+    if (budget < 2) {
+      truncated = true;
+      return undefined;
+    }
+    const array = Array.isArray(value);
+    const parts: string[] = [];
+    let remaining = budget - 2; // Reserve both container delimiters.
+    const entries = array ? value.entries() : Object.entries(value);
+    for (const [key, item] of entries) {
+      if (array && Number(key) >= (options.maxArrayLength ?? NO_LIMIT)) {
+        truncated = true;
         break;
       }
-      result[key] = compact(item, maxDepth, maxArrayLength, maxStringLength, state, depth + 1);
+      const prefix = (parts.length ? "," : "") + (array ? "" : `${JSON.stringify(key)}:`);
+      if (prefix.length >= remaining) {
+        truncated = true;
+        break;
+      }
+      const encoded = encode(item, remaining - prefix.length, depth + 1);
+      if (encoded === undefined) {
+        truncated = true;
+        continue;
+      }
+      parts.push(prefix + encoded);
+      remaining -= prefix.length + encoded.length;
     }
-    return result;
+    return (array ? "[" : "{") + parts.join("") + (array ? "]" : "}");
   }
 
-  return value;
-}
-
-function truncatePlain(raw: string, maxChars: number, maxStringLength: number): SanitizeResult {
-  let truncated = false;
-  let text = raw;
-  if (text.length > maxStringLength) {
-    text = text.slice(0, maxStringLength) + TRUNCATION_SUFFIX;
-    truncated = true;
-  }
-  if (text.length > maxChars) {
-    text = text.slice(0, maxChars) + TRUNCATION_SUFFIX;
-    truncated = true;
-  }
-  return { text, truncated };
+  const text = encode(parsed, maxChars, 0);
+  return { text: text ?? "", truncated };
 }
